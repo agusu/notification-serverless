@@ -15,27 +15,20 @@ var (
 	ErrDuplicateNotification = errors.New("notification already exists")
 )
 
-// MessageQueue es la interfaz para encolar mensajes (SQS)
-// La implementación real estará en clients/sqs.go
-type MessageQueue interface {
-	Send(ctx context.Context, message interface{}) error
-}
-
-// ChannelValidator valida metadata de canales (email, sms, push)
+// ChannelValidator validates channel metadata (email, sms, push)
 type ChannelValidator interface {
 	Validate(channelName string, meta map[string]string) error
 }
 
-// Service contiene la lógica de negocio de notificaciones
+// Service contains the business logic for notifications
 type Service struct {
 	repo      Repository
-	queue     MessageQueue
+	queue     Queue
 	validator ChannelValidator
 }
 
-// NewService crea una nueva instancia del servicio
-// Dependency Injection: recibe todas las dependencias por parámetro
-func NewService(repo Repository, queue MessageQueue, validator ChannelValidator) *Service {
+// NewService creates a new instance of the service
+func NewService(repo Repository, queue Queue, validator ChannelValidator) *Service {
 	return &Service{
 		repo:      repo,
 		queue:     queue,
@@ -43,7 +36,7 @@ func NewService(repo Repository, queue MessageQueue, validator ChannelValidator)
 	}
 }
 
-// Create crea una nueva notificación y la encola para procesamiento
+// Create creates a new notification and queues it for processing
 func (s *Service) Create(ctx context.Context, req CreateRequest) (*Notification, error) {
 	if err := s.validator.Validate(req.ChannelName, req.Meta); err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalidChannel, err)
@@ -66,6 +59,7 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Notification,
 
 	message := DispatchMessage{
 		NotificationID: notification.ID,
+		UserID:         notification.UserID,
 		ChannelName:    req.ChannelName,
 		Title:          req.Title,
 		Content:        req.Content,
@@ -73,40 +67,42 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Notification,
 		ScheduledAt:    req.ScheduledAt,
 	}
 
-	if err := s.queue.Send(ctx, message); err != nil {
-		// TODO: Implementar compensación (eliminar de DB?)
+	if err := s.queue.Publish(ctx, &message); err != nil {
+		// TODO: Implement compensation (delete from DB?)
 		return nil, fmt.Errorf("failed to enqueue: %w", err)
 	}
 
 	return notification, nil
 }
 
-// GetByID obtiene una notificación por ID
+// GetByID gets a notification by ID
 func (s *Service) GetByID(ctx context.Context, id string) (*Notification, error) {
 	return s.repo.GetByID(ctx, id)
 }
 
-// List lista notificaciones con filtros
+// List lists notifications with filters
 func (s *Service) List(ctx context.Context, query ListQuery) ([]*Notification, error) {
 	return s.repo.List(ctx, query)
 }
 
-// Update actualiza una notificación
+// Update updates a notification
+// Currently unused because notifications are sent immediately
+// Will be used in the future for scheduled notifications
 func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) error {
-	// 1. Verificar que existe
+	// 1. Verify that it exists
 	notification, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return err
 	}
 
-	// 2. Validar metadata si se proporciona
+	// 2. Validate metadata if provided
 	if req.Meta != nil {
 		if err := s.validator.Validate(notification.ChannelName, req.Meta); err != nil {
 			return fmt.Errorf("%w: %v", ErrInvalidChannel, err)
 		}
 	}
 
-	// 3. Preparar updates
+	// 3. Prepare updates
 	updates := make(map[string]interface{})
 	if req.Title != "" {
 		updates["title"] = req.Title
@@ -116,18 +112,19 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) erro
 	}
 	updates["updated_at"] = time.Now()
 
-	// 4. Actualizar
+	// 4. Update
 	return s.repo.Update(ctx, id, updates)
 }
 
-// Delete elimina una notificación (soft delete)
+// Delete deletes a notification (soft delete)
 func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, id)
 }
 
-// DispatchMessage es el mensaje que se envía a SQS
+// DispatchMessage is the message that is sent to SQS
 type DispatchMessage struct {
 	NotificationID string            `json:"notification_id"`
+	UserID         string            `json:"user_id"`
 	ChannelName    string            `json:"channel_name"`
 	Title          string            `json:"title"`
 	Content        string            `json:"content"`
@@ -135,7 +132,7 @@ type DispatchMessage struct {
 	ScheduledAt    *time.Time        `json:"scheduled_at,omitempty"`
 }
 
-// generateID genera un ID único (puedes usar ULID para sortability)
+// generateID generates a unique ID
 func generateID() string {
 	return uuid.New().String()
 }
