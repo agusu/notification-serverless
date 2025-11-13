@@ -18,7 +18,6 @@ type CreateRequest struct {
 	Content     string            `json:"content" binding:"required"`
 	ChannelName string            `json:"channel_name" binding:"required,oneof=email sms push"`
 	Meta        map[string]string `json:"meta"`
-	ScheduledAt *time.Time        `json:"scheduled_at,omitempty"`
 }
 
 type UpdateRequest struct {

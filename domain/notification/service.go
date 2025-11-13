@@ -64,7 +64,6 @@ func (s *Service) Create(ctx context.Context, req CreateRequest) (*Notification,
 		Title:          req.Title,
 		Content:        req.Content,
 		Meta:           req.Meta,
-		ScheduledAt:    req.ScheduledAt,
 	}
 
 	if err := s.queue.Publish(ctx, &message); err != nil {
@@ -129,7 +128,6 @@ type DispatchMessage struct {
 	Title          string            `json:"title"`
 	Content        string            `json:"content"`
 	Meta           map[string]string `json:"meta"`
-	ScheduledAt    *time.Time        `json:"scheduled_at,omitempty"`
 }
 
 // generateID generates a unique ID
