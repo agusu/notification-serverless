@@ -81,7 +81,11 @@ func (s *Service) GetByID(ctx context.Context, id string) (*Notification, error)
 
 // List lists notifications with filters
 func (s *Service) List(ctx context.Context, query ListQuery) ([]*Notification, error) {
-	return s.repo.List(ctx, query)
+	response, err := s.repo.List(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	return response.Notifications, nil
 }
 
 // Update updates a notification
@@ -116,6 +120,8 @@ func (s *Service) Update(ctx context.Context, id string, req UpdateRequest) erro
 }
 
 // Delete deletes a notification (soft delete)
+// Currently unused because notifications are sent immediately
+// Will be used in the future for scheduled notifications
 func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.repo.Delete(ctx, id)
 }
